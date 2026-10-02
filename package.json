@@ -1,0 +1,15 @@
+{
+  "name": "pi-nimble-router",
+  "version": "0.1.0",
+  "description": "Route pi turns between a local ollama model and a logged-in cloud model, decided by a fast local model.",
+  "type": "module",
+  "keywords": ["pi-package", "pi-extension", "model-routing", "ollama", "router"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

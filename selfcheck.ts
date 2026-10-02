@@ -1,0 +1,154 @@
+// Self-check for the router logic. Run: `node selfcheck.ts` (Node 22.6+ strips
+// types natively) or `node --import jiti selfcheck.ts`.
+import assert from "node:assert/strict";
+import { decide, parseDecision, resolveConfig, split, type ResolvedConfig, type RouterRegistry } from "./router.ts";
+
+const D = { provider: "ollama", model: "qwen3.8:27b-mlx" };
+
+function regOf(...answers: string[]): { reg: RouterRegistry; calls: number } {
+	let i = 0;
+	const reg: RouterRegistry = {
+		find(ref: string) {
+			const s = split(ref);
+			return s ? { provider: s.provider, id: s.id } : undefined;
+		},
+		hasConfiguredAuth: () => true,
+		async complete() {
+			const a = answers[i % answers.length];
+			i++;
+			return { text: a };
+		},
+	};
+	return { reg, calls: i };
+}
+
+// split
+assert.deepEqual(split("ollama/qwen3.8:27b-mlx"), { provider: "ollama", id: "qwen3.8:27b-mlx" });
+assert.equal(split("nodelimiter"), undefined);
+assert.equal(split("/x"), undefined);
+
+// parseDecision (last occurrence wins: a thinking model's verdict lands last)
+assert.equal(parseDecision("CLOUD"), "cloud");
+assert.equal(parseDecision("I think: local"), "local");
+assert.equal(parseDecision("cloud because it's hard"), "cloud"); // "local" absent
+assert.equal(parseDecision("reasoning... but actually local"), "local"); // last wins
+assert.equal(parseDecision("local then cloud"), "cloud"); // last wins
+assert.equal(parseDecision("maybe sometimes"), undefined);
+
+// resolveConfig defaults + fallback
+assert.equal(resolveConfig({}, D).router, "ollama/qwen3.8:27b-mlx");
+assert.equal(resolveConfig({}, D).fallback, "local");
+assert.equal(resolveConfig({ default: "cloud" }, D).fallback, "cloud");
+assert.equal(resolveConfig({ timeoutMs: 0 }, D).timeoutMs, 15000);
+assert.equal(resolveConfig({}, D).routerMaxTokens, 32);
+assert.deepEqual(resolveConfig({}, D).routerOptions, { reasoning_effort: "none", temperature: 0 });
+
+// decide: no cloud configured -> local, and the router is never called
+{
+	const cfg: ResolvedConfig = resolveConfig({ local: "ollama/qwen3.8:27b-mlx" }, D);
+	const { reg } = regOf();
+	// force "cloud" answer; must be ignored because cloud target is absent
+	(reg.complete as any) = async () => ({ text: "cloud" });
+	const d = await decide(cfg, reg, "fix the typo");
+	assert.equal(d.model?.id, "qwen3.8:27b-mlx");
+	assert.equal(d.target, "local");
+	assert.equal(d.why, "no-cloud");
+}
+
+// decide: cloud answered "cloud" -> cloud
+{
+	const cfg = resolveConfig({ local: "ollama/qwen3.8:27b-mlx", cloud: "openai/gpt-5" }, D);
+	const { reg } = regOf("cloud");
+	const d = await decide(cfg, reg, "design a distributed consensus system");
+	assert.equal(d.model?.provider, "openai");
+	assert.equal(d.target, "cloud");
+	assert.equal(d.why, "router");
+}
+
+// decide: cloud answered "local" -> local
+{
+	const cfg = resolveConfig({ local: "ollama/qwen3.8:27b-mlx", cloud: "openai/gpt-5" }, D);
+	const { reg } = regOf("local");
+	const d = await decide(cfg, reg, "what is 2+2, quick");
+	assert.equal(d.model?.provider, "ollama");
+	assert.equal(d.why, "router");
+}
+
+// decide: ambiguous answer -> falls back to configured default (cloud)
+{
+	const cfg = resolveConfig(
+			{ local: "ollama/qwen3.8:27b-mlx", cloud: "openai/gpt-5", default: "cloud" },
+			D,
+	);
+	const { reg } = regOf("who knows maybe");
+	const d = await decide(cfg, reg, "whatever");
+	assert.equal(d.model?.provider, "openai");
+	assert.equal(d.why, "fallback");
+}
+
+// decide: router model missing -> fallback target, no complete() attempted
+{
+	// un-splittable router ref -> find() returns undefined -> router missing
+	const cfg = resolveConfig({ router: "ghostmodel", local: "ollama/q", cloud: "anthropic/claude-3" }, D);
+	const { reg } = regOf("cloud");
+	let called = false;
+	reg.complete = async () => {
+		called = true;
+		return { text: "cloud" };
+	};
+	const d = await decide(cfg, reg, "task");
+	assert.equal(called, false);
+	assert.equal(d.target, "local"); // default fallback
+	assert.equal(d.model?.provider, "ollama");
+}
+
+// decide: cloud not authenticated -> local
+{
+	const cfg = resolveConfig({ local: "ollama/q", cloud: "openai/gpt-5" }, D);
+	const reg: RouterRegistry = {
+		find: (ref) => {
+			const s = split(ref);
+			return s ? { provider: s.provider, id: s.id } : undefined;
+		},
+		hasConfiguredAuth: (m) => m.provider !== "openai", // openai not logged in
+		async complete() {
+			return { text: "cloud" };
+		},
+	};
+	const d = await decide(cfg, reg, "hard problem");
+	assert.equal(d.model?.provider, "ollama");
+	assert.equal(d.why, "no-cloud");
+}
+
+// decide: complete() throws -> falls back, never throws
+{
+	const cfg = resolveConfig({ local: "ollama/q", cloud: "openai/gpt-5", default: "local" }, D);
+	const reg: RouterRegistry = {
+		find: (ref) => {
+			const s = split(ref);
+			return s ? { provider: s.provider, id: s.id } : undefined;
+		},
+		hasConfiguredAuth: () => true,
+		async complete() {
+			throw new Error("boom");
+		},
+	};
+	const d = await decide(cfg, reg, "task");
+	assert.equal(d.why, "fallback");
+	assert.equal(d.model?.provider, "ollama");
+}
+
+// decide: forward routerOptions (thinking suppression) to the router call
+{
+	const cfg = resolveConfig({ local: "ollama/q", cloud: "openai/gpt-5", routerOptions: { enable_thinking: false } }, D);
+	let seenSample: any;
+	const reg: RouterRegistry = {
+		find: (ref) => { const s = split(ref); return s ? { provider: s.provider, id: s.id } : undefined; },
+		hasConfiguredAuth: () => true,
+		async complete(_m, _ctx, opts) { seenSample = opts.samplingParams; return { text: "local" }; },
+		};
+	await decide(cfg, reg, "task");
+	assert.deepEqual(seenSample, { enable_thinking: false }, "routerOptions forwarded");
+}
+
+console.log("router selfcheck: all passed");
