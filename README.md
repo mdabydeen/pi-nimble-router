@@ -31,7 +31,7 @@ e.g. `nimble/auto • low → ollama/qwen3.8:27b-mlx` or `... → openai/gpt-5`.
 ## Configure
 
 Merge `nimbleRouter` into `~/.pi/agent/settings.json` (or `<cwd>/.pi/settings.json`, which overrides
-global), then `/reload`.
+non-exfil fields), then `/reload`.
 
 ```json
 {
@@ -81,6 +81,22 @@ leave the verdict out of the response's `content`. The defaults handle this two 
 in ~0.1s), and `temperature: 0` makes the one-word choice deterministic. Non-thinking models ignore
 the suppression key. To run a router the opposite way, set `"routerOptions": {}`. Debug any decision
 with `NIMBLE_DEBUG=1 pi ...` (it logs the raw router answer and the parsed choice to stderr).
+
+## Security
+
+- **Prompt injection of the router.** Routing is decided by a local model, whose prompt
+  contains your (possibly pasted, untrusted) text. The router input is therefore wrapped
+  in explicit `UNTRUSTED DATA` markers and the parser only reads the router's own final
+  line, so a `cloud`/`local` token embedded in pasted content can no longer force a route.
+  This bounds but cannot fully defeat injection; the verdict still must come from outside
+  the delimited region.
+- **Exfil targets come from trusted config only.** `cloud`/`cloudWhen` may be set in the
+  global/user settings, never in a project-local `<cwd>/.pi/settings.json`, so a cloned repo
+  cannot quietly point routing at a cloud provider you have logged into. A project file may
+  still tune the non-exfil fields.
+- **Fail-closed on uncertainty.** A timed-out, unavailable, or unparseable router call
+  routes to your `default` (local by default); a cloud that is unset or not logged in is
+  ignored, so an unexpected turn never surprises its way to the cloud.
 
 ## Files
 

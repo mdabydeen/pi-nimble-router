@@ -9,7 +9,8 @@
  * Register `nimble/auto`, then `--model nimble/auto` (or /model nimble/auto).
  *
  * Configure in ~/.pi/agent/settings.json (or <cwd>/.pi/settings.json, which
- * overrides global):
+ * overrides global for non-exfil fields; exfil targets `cloud`/`cloudWhen` are
+ * set in the global/user file only):
  *
  *   "nimbleRouter": {
  *     "router": "ollama/llama3.2:3b",        // fast local model that decides
@@ -36,7 +37,7 @@ import {
 	type ModelRoute,
 	type ModelRouteRequest,
 } from "@earendil-works/pi-coding-agent";
-import { decide, resolveConfig, split, type RouterRegistry, type Target } from "./router.ts";
+import { decide, mergeConfig, resolveConfig, split, type NimbleConfig, type RouterRegistry, type Target } from "./router.ts";
 
 interface RouterState {
 	target: Target | "sticky" | "direct";
@@ -63,28 +64,29 @@ function lastUserText(messages: readonly Message[], cap = 12_000): string {
 	return "";
 }
 
-function readConfig(cwd: string): {
-	router?: string;
-	local?: string;
-	cloud?: string;
-	default?: Target;
-	timeoutMs?: number;
-	cloudWhen?: string;
-} {
-	const paths = [join(getAgentDir(), "settings.json"), join(cwd, CONFIG_DIR_NAME, "settings.json")];
-	let merged: Record<string, unknown> = {};
-	for (const p of paths) {
-		if (!existsSync(p)) continue;
-		try {
-			const file = JSON.parse(readFileSync(p, "utf8"));
-			if (file?.nimbleRouter && typeof file.nimbleRouter === "object") {
-				merged = { ...merged, ...file.nimbleRouter };
-			}
-		} catch {
-			// ignore malformed settings; fall back to defaults
-		}
+/** Load the `nimbleRouter` block from one settings file, or undefined. */
+function loadNimble(p: string): NimbleConfig | undefined {
+	if (!existsSync(p)) return undefined;
+	try {
+		const file = JSON.parse(readFileSync(p, "utf8"));
+		const n = file?.nimbleRouter;
+		return n && typeof n === "object" ? (n as NimbleConfig) : undefined;
+	} catch {
+		// ignore malformed settings; fall back to defaults
+		return undefined;
 	}
-	return merged;
+}
+
+/**
+ * Read routing config: the trusted global/user settings, merged with a project-local
+ * `<cwd>/.pi/settings.json`. Project config may override non-exfil fields but can never
+ * set exfil-able targets (`cloud`/`cloudWhen`) - those come from global only - so a
+ * cloned repo cannot point routing at the user's logged-in cloud.
+ */
+function readConfig(cwd: string): NimbleConfig {
+	const globalCfg = loadNimble(join(getAgentDir(), "settings.json")) ?? {};
+	const projectCfg = loadNimble(join(cwd, CONFIG_DIR_NAME, "settings.json"));
+	return mergeConfig(globalCfg, projectCfg);
 }
 
 export default function (pi: ExtensionAPI) {
