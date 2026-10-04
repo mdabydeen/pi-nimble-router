@@ -125,4 +125,9 @@ with `NIMBLE_DEBUG=1 pi ...` (it logs the raw router answer and the parsed choic
 node selfcheck.ts
 ```
 
+If the documented install or fallback behaviour does not match a test environment, use the
+[installation feedback template](https://github.com/mdabydeen/pi-nimble-router/issues/new?template=installation-feedback.md)
+with a sanitized, reproducible example. Do not include credentials, private prompts, or private
+file paths.
+
 MIT.
