@@ -1,7 +1,7 @@
 {
   "name": "pi-nimble-router",
-  "version": "0.1.0",
-  "description": "Route pi turns between a local ollama model and a logged-in cloud model, decided by a fast local model.",
+  "version": "0.2.0",
+  "description": "Local-first three-tier model routing for Pi, decided by a local Ollama model.",
   "type": "module",
   "keywords": ["pi-package", "pi-extension", "model-routing", "ollama", "router"],
   "license": "MIT",

@@ -34,6 +34,10 @@ assert.equal(parseDecision("cloud because it's hard"), "cloud"); // "local" abse
 assert.equal(parseDecision("reasoning... but actually local"), "local"); // last wins
 assert.equal(parseDecision("local then cloud"), "cloud"); // last wins
 assert.equal(parseDecision("maybe sometimes"), undefined);
+// heavy is a recognized third tier; last token still wins
+assert.equal(parseDecision("heavy"), "heavy");
+assert.equal(parseDecision("local, then cloud, then heavy"), "heavy");
+assert.equal(parseDecision("start with heavy\nlocal"), "local", "final line wins over heavy on an earlier line");
 
 // resolveConfig defaults + fallback
 assert.equal(resolveConfig({}, D).router, "ollama/qwen3.8:27b-mlx");
@@ -194,5 +198,50 @@ assert.deepEqual(mergeConfig({}, undefined), {}, "no project config -> global un
 	assert.equal(r.cloudWhen, undefined, "project cloudWhen ignored when only project set it");
 }
 assert.equal(mergeConfig({ local: "a" }, { local: "b" }).local, "b", "non-exfil override works");
+
+// decide: three-tier ladder. heavy verdict routes to the strong model when it's logged in
+{
+	const cfg = resolveConfig(
+		{ local: "ollama/qwen3.8:27b-mlx", cloud: "anthropic/claude-sonnet-4-6", heavy: "anthropic/claude-opus-5-5" },
+		D,
+	);
+	const reg: RouterRegistry = {
+		find: (ref) => {
+			const s = split(ref);
+			return s ? { provider: s.provider, id: s.id } : undefined;
+			},
+		hasConfiguredAuth: () => true,
+		async complete() {
+			return { text: "heavy" };
+			},
+	};
+	const d = await decide(cfg, reg, "redesign the distributed consensus protocol end to end");
+	assert.equal(d.model?.provider, "anthropic");
+	assert.equal(d.model?.id, "claude-opus-5-5");
+	assert.equal(d.target, "heavy");
+	assert.equal(d.why, "router");
+}
+
+// decide: heavy requested but not logged in -> downgrades to the logged-in cheap cloud tier
+{
+	const cfg = resolveConfig(
+		{ local: "ollama/qwen3.8:27b-mlx", cloud: "anthropic/claude-sonnet-4-6", heavy: "anthropic/claude-opus-5-5" },
+		D,
+	);
+	const reg: RouterRegistry = {
+		find: (ref) => {
+			const s = split(ref);
+			return s ? { provider: s.provider, id: s.id } : undefined;
+			},
+		hasConfiguredAuth: (m) => m.id !== "claude-opus-5-5", // heavy not logged in; cloud is
+		async complete() {
+			return { text: "heavy" };
+			},
+	};
+	const d = await decide(cfg, reg, "hardest possible thing");
+	assert.equal(d.model?.id, "claude-sonnet-4-6");
+	assert.equal(d.target, "cloud");
+	assert.equal(d.why, "router");
+}
 
 console.log("router selfcheck: all passed");

@@ -1,13 +1,14 @@
 # pi-nimble-router
 
 A local-first model router for [Pi](https://github.com/earendil-works/pi). Register one virtual
-model, `nimble/auto`, and Pi routes each turn between a **heavy local model** (ollama) and a
-**logged-in cloud model** (OpenAI, Anthropic, ...) — with the routing *decision* made by a fast
-local model on ollama. No external gateway, no per-request upload of your text.
+model, `nimble/auto`, and Pi routes each turn between a fast local model, an optional remote model,
+and an optional stronger remote model. The routing decision is made by a local model through
+Ollama. There is no third-party routing gateway. When a turn is routed remotely, Pi sends it to the
+provider you configured and authenticated.
 
 The idea mirrors the `jev-router` pattern (a virtual model that picks a physical model per request),
-but replaces the paid Vercel/TypeSafe Jev call with a cheap ollama call, so routing is private and
-free.
+but replaces the paid Vercel/TypeSafe Jev call with a local Ollama call. That keeps the routing
+decision local and avoids adding another service to the request path.
 
 ## Install
 
@@ -38,7 +39,8 @@ non-exfil fields), then `/reload`.
     "nimbleRouter": {
         "router": "ollama/llama3.2:3b",
         "local": "ollama/qwen3.8:27b-mlx",
-        "cloud": "openai/gpt-5",
+        "cloud": "anthropic/claude-sonnet-4-6",
+        "heavy": "anthropic/claude-opus-5-5",
         "default": "local",
         "timeoutMs": 15000,
         "cloudWhen": "architecture, hard debugging, cross-cutting design, research"
@@ -49,29 +51,32 @@ non-exfil fields), then `/reload`.
 | field | meaning | default |
 |---|---|---|
 | `router` | fast local model that decides | the default model |
-| `local` | heavy local model to route to | the default model |
-| `cloud` | logged-in cloud model to route to | _(unset — routes stay local)_ |
+| `local` | light/quick default tier to route to | the default model |
+| `cloud` | cheaper logged-in remote model (work a local can't do, but not very hard) | _(unset — routes stay local)_ |
+| `heavy` | strongest logged-in remote model, only for the hardest work | _(unset)_ |
 | `default` | where to send a turn when there is no decision | `local` |
 | `timeoutMs` | router decision budget | `15000` |
 | `cloudWhen` | natural-language hint for when to prefer cloud | none |
 | `routerMaxTokens` | max output tokens for the router call | `32` |
 | `routerOptions` | sampling params for the router call | `{ reasoning_effort: "none", temperature: 0 }` |
 
-`router`/`local`/`cloud` are `provider/id`. The router and local targets just need their provider
-configured (ollama always is). The cloud target is only used when that provider is **logged in**;
-otherwise every turn stays local. `default` must be a real model.
+`router`/`local`/`cloud`/`heavy` are `provider/id`. The router and local targets just need their provider
+configured (ollama always is). The remote targets are only used when that provider is **logged in**;
+otherwise every turn stays local. A `heavy` verdict downgrades to `cloud`, then `local`, if that model
+isn't logged in. `default` must be a real model.
 
 ## How it decides
 
 - **New user turn** (`reason === "user"`): the router model is asked, in one short local call, to
-  answer `local` or `cloud`. The **last** mention wins (a thinking model narrates first, its verdict
+  answer `local`, `cloud`, or `heavy`. The **last** mention wins (a thinking model narrates first, its verdict
   lands last); an unparseable or empty reply falls through to `default`.
 - **Within a turn** (`continuation`, `retry`): the model from the last successful/failed response is
   kept, so prompt caches and thinking signatures stay valid.
 - **Off the agent loop** (`direct`, e.g. compaction summaries): goes straight to the local target;
   the router is not called.
-- **Failures are soft**: router unavailable, timed out, or unparseable → `default`. If `cloud`
-  isn't configured or logged in → `local`.
+- **Failures are soft**: router unavailable, timed out, or unparseable → `default`. A remote
+  target that isn't configured or logged in (or a `heavy` requested but not available) downgrades
+  to `cloud`, then `local`.
 
 ## Thinking routers
 
@@ -90,7 +95,7 @@ with `NIMBLE_DEBUG=1 pi ...` (it logs the raw router answer and the parsed choic
   line, so a `cloud`/`local` token embedded in pasted content can no longer force a route.
   This bounds but cannot fully defeat injection; the verdict still must come from outside
   the delimited region.
-- **Exfil targets come from trusted config only.** `cloud`/`cloudWhen` may be set in the
+- **Exfil targets come from trusted config only.** `cloud`/`heavy`/`cloudWhen` may be set in the
   global/user settings, never in a project-local `<cwd>/.pi/settings.json`, so a cloned repo
   cannot quietly point routing at a cloud provider you have logged into. A project file may
   still tune the non-exfil fields.

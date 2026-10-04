@@ -3,8 +3,9 @@
  * local model (ollama) and a logged-in cloud model (OpenAI / Anthropic / ...),
  * with the decision itself made by a fast local model on ollama.
  *
- * Mirrors the jev-router pattern, but the router runs locally and privately
- * instead of sending text to an external gateway.
+ * Mirrors the jev-router pattern, but the routing decision runs locally instead
+ * of sending the task to an external decision gateway. A selected remote model
+ * still receives the turn through the provider configured by the user.
  *
  * Register `nimble/auto`, then `--model nimble/auto` (or /model nimble/auto).
  *
@@ -14,15 +15,16 @@
  *
  *   "nimbleRouter": {
  *     "router": "ollama/llama3.2:3b",        // fast local model that decides
- *     "local": "ollama/qwen3.8:27b-mlx",     // heavy local model
- *     "cloud": "openai/gpt-5",               // logged-in cloud model
+ *     "local": "ollama/qwen3.8:27b-mlx",     // fast local tier
+ *     "cloud": "anthropic/claude-sonnet-4-6",   // cheaper logged-in remote model
+ *     "heavy": "anthropic/claude-opus-5-5",   // strongest remote, hardest work only
  *     "default": "local",                     // where to go on no-decision
  *     "timeoutMs": 4000,                      // router decision budget
  *     "cloudWhen": "architecture, hard debugging, cross-cutting design, research"
  *   }
  *
- * Defaults: router = local = default model. `cloud` is only used when the
- * provider is logged in; otherwise every turn stays local.
+ * Defaults: router = local = default model. Remote targets are only used when
+ * their providers are logged in; otherwise every turn stays local.
  */
 
 import { existsSync, readFileSync } from "node:fs";
