@@ -217,8 +217,15 @@ export async function decide(
 				samplingParams: config.routerOptions,
 			})
 			.then((r) => r.text ?? "");
-		if (process.env.NIMBLE_DEBUG)
-			console.error(JSON.stringify({ router: config.router, opts: config.routerOptions, out, choice: parseDecision(out ?? "") }));
+		if (process.env.NIMBLE_DEBUG) {
+			// Keep debug output useful without echoing the router's raw response. The
+			// response can contain copied task text or other untrusted material.
+			console.error(JSON.stringify({
+				router: config.router,
+				outputLength: out.length,
+				choice: parseDecision(out),
+			}));
+		}
 		answer = out;
 	} catch {
 		answer = "";

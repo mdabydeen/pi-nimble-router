@@ -14,7 +14,7 @@ decision local and avoids adding another service to the request path.
 
 ```sh
 # install the pinned public GitHub release
-pi install git:github.com/mdabydeen/pi-nimble-router@v0.2.0
+pi install git:github.com/mdabydeen/pi-nimble-router@v0.2.1
 
 # or, from a clone
 pi install ./
@@ -24,7 +24,7 @@ pi --extension ./index.ts --model nimble/auto
 ```
 
 Pi's package manager supports pinned Git refs, so the GitHub command keeps the install on the
-reviewed `v0.2.0` release. An npm install command will be added only after the package is actually
+reviewed `v0.2.1` release. An npm install command will be added only after the package is actually
 published to npm.
 
 ## Use
@@ -92,7 +92,7 @@ leave the verdict out of the response's `content`. The defaults handle this two 
 `reasoning_effort: "none"` asks ollama to skip the preamble (the verdict then arrives in `content`
 in ~0.1s), and `temperature: 0` makes the one-word choice deterministic. Non-thinking models ignore
 the suppression key. To run a router the opposite way, set `"routerOptions": {}`. Debug any decision
-with `NIMBLE_DEBUG=1 pi ...` (it logs the raw router answer and the parsed choice to stderr).
+with `NIMBLE_DEBUG=1 pi ...` (it logs the router ref, response length, and parsed choice to stderr; it intentionally does not echo the raw response).
 
 ## Security
 

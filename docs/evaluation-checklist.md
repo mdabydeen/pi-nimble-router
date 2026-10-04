@@ -14,7 +14,7 @@ Use this checklist to inspect the router in a test Pi environment. It is a way t
 1. Install the pinned release:
 
    ```sh
-   pi install git:github.com/mdabydeen/pi-nimble-router@v0.2.0
+   pi install git:github.com/mdabydeen/pi-nimble-router@v0.2.1
    ```
 
 2. Configure `nimble/auto` with `local` and `default` pointing to the same available local model.
@@ -28,7 +28,7 @@ Use this checklist to inspect the router in a test Pi environment. It is a way t
 
 1. Add one authenticated `cloud` target while leaving `heavy` unset.
 2. Repeat a similar task and record the same fields.
-3. Use `NIMBLE_DEBUG=1` when you need to inspect the router's raw response and parsed verdict. Remove any sensitive text before sharing the output.
+3. Use `NIMBLE_DEBUG=1` when you need to inspect the router ref, response length, and parsed verdict. The debug record intentionally omits the raw response; do not add copied task text to shared logs.
 
 The result is an observation about one configuration. It is not evidence of cost savings, latency improvement, or general model quality.
 

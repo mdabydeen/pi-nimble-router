@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 — 2026-10-03
+
+- Redact the raw local-router response from `NIMBLE_DEBUG` output; retain only the router ref, response length, and parsed choice.
+- Clarify the evaluation guidance so debug records do not echo copied task text.
+
 ## 0.2.0 — 2026-10-03
 
 - Add `local`, `cloud`, and `heavy` routing tiers selected by a local Ollama model.

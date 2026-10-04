@@ -1,6 +1,6 @@
 {
   "name": "pi-nimble-router",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Local-first three-tier model routing for Pi, decided by a local Ollama model.",
   "type": "module",
   "keywords": ["pi-package", "pi-extension", "model-routing", "ollama", "router"],
