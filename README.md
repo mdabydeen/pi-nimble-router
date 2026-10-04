@@ -84,6 +84,11 @@ isn't logged in. `default` must be a real model.
 - **Failures are soft**: router unavailable, timed out, or unparseable → `default`. A remote
   target that isn't configured or logged in (or a `heavy` requested but not available) downgrades
   to `cloud`, then `local`.
+- **Cancellation is soft**: if a request is already cancelled, the router call is skipped and the
+  configured `default` is returned. If cancellation arrives while the router is running, the call
+  is aborted and follows the same fallback path. With `NIMBLE_DEBUG=1`, the cancel record contains
+  only the router reference, cancellation marker, and fallback target; it does not echo task text
+  or the router response.
 
 ## Thinking routers
 

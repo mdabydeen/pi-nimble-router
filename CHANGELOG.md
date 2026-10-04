@@ -4,6 +4,7 @@
 
 - Honour a request that is already cancelled before invoking the local router; return the configured fallback immediately.
 - Emit a redacted `NIMBLE_DEBUG` record on the cancel path (router ref and fallback target) without echoing a router response.
+- Document the cancellation contract in the README alongside the other routing boundaries.
 - Keep regression coverage for router failures and pre-cancelled requests in the repository self-check.
 
 ## 0.2.1 — 2026-10-03
