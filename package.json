@@ -10,9 +10,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mdabydeen/pi-nimble-router.git"
+    "url": "git+https://github.com/mdabydeen/pi-nimble-router.git"
   },
   "homepage": "https://github.com/mdabydeen/pi-nimble-router#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "bugs": {
     "url": "https://github.com/mdabydeen/pi-nimble-router/issues"
   },
