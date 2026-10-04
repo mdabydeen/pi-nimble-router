@@ -13,6 +13,15 @@
   "bugs": {
     "url": "https://github.com/mdabydeen/pi-nimble-router/issues"
   },
+  "files": [
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "index.ts",
+    "package.json",
+    "router.ts",
+    "selfcheck.ts"
+  ],
   "pi": {
     "extensions": ["./index.ts"]
   },
