@@ -155,6 +155,31 @@ assert.deepEqual(resolveConfig({}, D).routerOptions, { reasoning_effort: "none",
 	assert.deepEqual(seenSample, { enable_thinking: false }, "routerOptions forwarded");
 }
 
+// debug output: retain routing metadata without echoing copied task text
+{
+	const cfg = resolveConfig({ local: "ollama/q", cloud: "openai/gpt-5" }, D);
+	const reg: RouterRegistry = {
+		find: (ref) => { const s = split(ref); return s ? { provider: s.provider, id: s.id } : undefined; },
+		hasConfiguredAuth: () => true,
+		async complete() { return { text: "cloud\nCOPIED_TASK_TEXT" }; },
+	};
+	const previousDebug = process.env.NIMBLE_DEBUG;
+	const previousError = console.error;
+	const logs: string[] = [];
+	process.env.NIMBLE_DEBUG = "1";
+	console.error = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+	try {
+		await decide(cfg, reg, "paste COPIED_TASK_TEXT");
+	} finally {
+		if (previousDebug === undefined) delete process.env.NIMBLE_DEBUG;
+		else process.env.NIMBLE_DEBUG = previousDebug;
+		console.error = previousError;
+	}
+	assert.equal(logs.length, 1, "debug emits one record");
+	assert.ok(logs[0].includes("outputLength"), "debug record includes output length");
+	assert.ok(!logs[0].includes("COPIED_TASK_TEXT"), "debug record omits copied task text");
+}
+
 // parseDecision: only the router's FINAL line is parsed, last token wins
 assert.equal(parseDecision('"cloud".'), "cloud", "punctuation/quotes around verdict still parse");
 assert.equal(parseDecision("local\r\ncloud"), "cloud", "CRLF split, final line wins");
