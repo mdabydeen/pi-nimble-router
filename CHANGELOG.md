@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add a dependency-free GitHub Actions verification job for the self-check, redacted debug output, package shape, and patch whitespace.
+
 ## 0.2.2 — 2026-10-03
 
 - Honour a request that is already cancelled before invoking the local router; return the configured fallback immediately.

@@ -1,0 +1,35 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  selfcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run routing self-check
+        run: npm test
+      - name: Check debug output stays redacted
+        shell: bash
+        run: |
+          set -o pipefail
+          output="$(NIMBLE_DEBUG=1 node selfcheck.ts 2>&1)"
+          printf '%s\n' "$output"
+          if grep -E 'COPIED_TASK_TEXT|"out"|"opts"' <<<"$output"; then
+            echo 'debug output disclosure detected' >&2
+            exit 1
+          fi
+      - name: Check package contents
+        run: npm pack --dry-run --json
+      - name: Check patch whitespace
+        run: git diff --check

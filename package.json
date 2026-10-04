@@ -3,6 +3,9 @@
   "version": "0.2.2",
   "description": "Local-first three-tier model routing for Pi, decided by a local Ollama model.",
   "type": "module",
+  "scripts": {
+    "test": "node selfcheck.ts"
+  },
   "keywords": ["pi-package", "pi-extension", "model-routing", "ollama", "router"],
   "license": "MIT",
   "repository": {

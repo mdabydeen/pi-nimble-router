@@ -127,8 +127,14 @@ with `NIMBLE_DEBUG=1 pi ...` (it logs the router ref, response length, and parse
 
 ```sh
 # routing logic self-check (Node strips TS types; no deps)
+npm test
+# or, directly
 node selfcheck.ts
 ```
+
+Every push and pull request runs the same self-check, a redacted-debug scan, a package dry-run,
+and a whitespace check in GitHub Actions. These checks verify the repository contract; they are not
+a benchmark or a production-readiness claim.
 
 If the documented install or fallback behaviour does not match a test environment, use the
 [installation feedback template](https://github.com/mdabydeen/pi-nimble-router/issues/new?template=installation-feedback.md)
