@@ -5,6 +5,11 @@
 - Add a dependency-free GitHub Actions verification job for the self-check, redacted debug output, package shape, and patch whitespace.
 - Explain the local-first trade-off and the boundary between local routing and remote generation in the README.
 
+## 0.2.3 — 2026-10-04
+
+- Document the published npm installation path alongside the pinned GitHub release.
+- Keep the GitHub release as the exact Pi install reference; this documentation change does not claim adoption, performance, or revenue.
+
 ## 0.2.2 — 2026-10-03
 
 - Honour a request that is already cancelled before invoking the local router; return the configured fallback immediately.

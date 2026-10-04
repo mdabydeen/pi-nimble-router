@@ -34,6 +34,9 @@ the local boundary is the requirement. The two approaches solve different operat
 # install the pinned public GitHub release
 pi install git:github.com/mdabydeen/pi-nimble-router@v0.2.2
 
+# or install the published npm package
+npm install pi-nimble-router
+
 # or, from a clone
 pi install ./
 
@@ -42,8 +45,8 @@ pi --extension ./index.ts --model nimble/auto
 ```
 
 Pi's package manager supports pinned Git refs, so the GitHub command keeps the install on the
-reviewed `v0.2.2` release. An npm install command will be added only after the package is actually
-published to npm.
+reviewed `v0.2.2` release. The npm package is published as `pi-nimble-router`; use the Git ref when
+you need the exact reviewed Pi release and npm when you prefer registry installation.
 
 ## Use
 
