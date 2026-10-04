@@ -14,7 +14,7 @@ decision local and avoids adding another service to the request path.
 
 ```sh
 # install the pinned public GitHub release
-pi install git:github.com/mdabydeen/pi-nimble-router@v0.2.1
+pi install git:github.com/mdabydeen/pi-nimble-router@v0.2.2
 
 # or, from a clone
 pi install ./
@@ -24,7 +24,7 @@ pi --extension ./index.ts --model nimble/auto
 ```
 
 Pi's package manager supports pinned Git refs, so the GitHub command keeps the install on the
-reviewed `v0.2.1` release. An npm install command will be added only after the package is actually
+reviewed `v0.2.2` release. An npm install command will be added only after the package is actually
 published to npm.
 
 ## Use

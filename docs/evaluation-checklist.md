@@ -14,7 +14,7 @@ Use this checklist to inspect the router in a test Pi environment. It is a way t
 1. Install the pinned release:
 
    ```sh
-   pi install git:github.com/mdabydeen/pi-nimble-router@v0.2.1
+   pi install git:github.com/mdabydeen/pi-nimble-router@v0.2.2
    ```
 
 2. Configure `nimble/auto` with `local` and `default` pointing to the same available local model.

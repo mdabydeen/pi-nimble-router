@@ -142,6 +142,80 @@ assert.deepEqual(resolveConfig({}, D).routerOptions, { reasoning_effort: "none",
 	assert.equal(d.model?.provider, "ollama");
 }
 
+// decide: signal already aborted before entry -> skip the router call, fail soft to fallback
+{
+	const cfg = resolveConfig({ local: "ollama/q", cloud: "openai/gpt-5", default: "cloud" }, D);
+	let completeCalled = false;
+	const reg: RouterRegistry = {
+		find: (ref) => { const s = split(ref); return s ? { provider: s.provider, id: s.id } : undefined; },
+		hasConfiguredAuth: () => true,
+		async complete(_m, _ctx, opts) {
+			completeCalled = true;
+			// a real router honors the signal; an aborted incoming request must not reach it
+			if (opts.signal?.aborted) throw new DOMException("aborted", "AbortError");
+			await new Promise((r) => setTimeout(r, 30));
+			return { text: "cloud" };
+		},
+	};
+	const ac = new AbortController();
+	ac.abort(); // cancellation in flight before decide() is called
+	const d = await decide(cfg, reg, "task", ac.signal);
+	assert.equal(completeCalled, false, "router LLM call is skipped when already cancelled");
+	assert.equal(d.why, "fallback");
+	assert.equal(d.target, "cloud", "fails soft to the configured default");
+	assert.equal(d.model?.provider, "openai", "default target's model still resolves");
+}
+
+// decide: not aborted yet, then abort mid-flight -> router call is cut, falls soft to fallback
+{
+	const cfg = resolveConfig({ local: "ollama/q", cloud: "openai/gpt-5", default: "local" }, D);
+	const reg: RouterRegistry = {
+		find: (ref) => { const s = split(ref); return s ? { provider: s.provider, id: s.id } : undefined; },
+		hasConfiguredAuth: () => true,
+		async complete(_m, _ctx, opts) {
+			// an in-flight router call rejects the moment its signal aborts
+			await new Promise((resolve, reject) => {
+				if (opts.signal) opts.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+				// would resolve as "cloud" after 30ms if never cancelled
+				setTimeout(resolve, 30);
+			});
+			return { text: "cloud" };
+		},
+	};
+	const ac = new AbortController();
+	const p = decide(cfg, reg, "task", ac.signal);
+	// cancel while the router call is still in flight
+	ac.abort();
+	const d = await p;
+	assert.equal(d.why, "fallback", "mid-flight cancel cuts the live call and fails soft");
+	assert.equal(d.model?.provider, "ollama");
+}
+
+// decide: cancel path emits a redacted debug record without a router response
+{
+	const cfg = resolveConfig({ local: "ollama/q", cloud: "openai/gpt-5" }, D);
+	const reg: RouterRegistry = {
+		find: (ref) => { const s = split(ref); return s ? { provider: s.provider, id: s.id } : undefined; },
+		hasConfiguredAuth: () => true,
+		async complete() { return { text: "cloud" }; },
+	};
+	const previousDebug = process.env.NIMBLE_DEBUG;
+	const previousError = console.error;
+	const logs: string[] = [];
+	process.env.NIMBLE_DEBUG = "1";
+	console.error = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+	const ac = new AbortController();
+	ac.abort();
+	try {
+		await decide(cfg, reg, "task", ac.signal);
+	} finally {
+		if (previousDebug === undefined) delete process.env.NIMBLE_DEBUG;
+		else process.env.NIMBLE_DEBUG = previousDebug;
+		console.error = previousError;
+	}
+	assert.equal(logs.length, 1, "cancel path logs one record");
+	assert.ok(logs[0].includes("\"cancelled\":true"), "record marks the cancelled short-circuit");
+}
 // decide: forward routerOptions (thinking suppression) to the router call
 {
 	const cfg = resolveConfig({ local: "ollama/q", cloud: "openai/gpt-5", routerOptions: { enable_thinking: false } }, D);

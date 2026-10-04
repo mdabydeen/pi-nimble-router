@@ -205,6 +205,18 @@ export async function decide(
 
 	// Decide with the fast local router. Bounded, and it fails soft to the fallback.
 	const controller = new AbortController();
+	if (signal?.aborted) {
+		// Cancellation already in flight before we got here: an addEventListener on an
+		// already-aborted signal never fires, so forward the state explicitly. Without this
+		// the router LLM call would run to completion on a cancelled turn. Fail soft to default.
+		controller.abort();
+		if (process.env.NIMBLE_DEBUG) {
+			// Retain routing metadata without the (now-irrelevant) router response: the turn
+			// was cancelled, so no verdict was produced and there is nothing to redact.
+			console.error(JSON.stringify({ router: config.router, cancelled: true, target: config.fallback }));
+		}
+		return { ...clamp(config.fallback), why: "fallback" };
+	}
 	const timer = setTimeout(() => controller.abort(), config.timeoutMs);
 	const onAbort = () => controller.abort();
 	signal?.addEventListener("abort", onAbort, { once: true });
