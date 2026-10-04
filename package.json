@@ -5,6 +5,14 @@
   "type": "module",
   "keywords": ["pi-package", "pi-extension", "model-routing", "ollama", "router"],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mdabydeen/pi-nimble-router.git"
+  },
+  "homepage": "https://github.com/mdabydeen/pi-nimble-router#readme",
+  "bugs": {
+    "url": "https://github.com/mdabydeen/pi-nimble-router/issues"
+  },
   "pi": {
     "extensions": ["./index.ts"]
   },
