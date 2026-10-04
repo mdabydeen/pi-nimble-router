@@ -10,6 +10,24 @@ The idea mirrors the `jev-router` pattern (a virtual model that picks a physical
 but replaces the paid Vercel/TypeSafe Jev call with a local Ollama call. That keeps the routing
 decision local and avoids adding another service to the request path.
 
+## Where Nimble fits
+
+Nimble is for a specific trade-off: keep the routing decision on the machine running Pi, then use a
+remote model only when trusted configuration and provider authentication make that route available.
+The task still goes to the selected provider when a remote tier is chosen. Local routing therefore
+reduces one decision-layer hop, but it does not make a remote generation private.
+
+| Question | Nimble's answer |
+|---|---|
+| Where is the routing decision made? | In the configured local Ollama model. |
+| When can task text leave the machine? | When the selected `cloud` or `heavy` model is remote and authenticated. |
+| What happens when routing is uncertain? | The configured `default` is used, local by default. |
+| Does the project claim lower cost, latency, or higher quality? | No. Use the [evaluation checklist](docs/evaluation-checklist.md) to collect a local observation. |
+
+Choose a remote decision layer when its classification features, adaptive policies, or hosted
+telemetry are more valuable to your workflow than keeping that decision local. Choose Nimble when
+the local boundary is the requirement. The two approaches solve different operational problems.
+
 ## Install
 
 ```sh

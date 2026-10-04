@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add a dependency-free GitHub Actions verification job for the self-check, redacted debug output, package shape, and patch whitespace.
+- Explain the local-first trade-off and the boundary between local routing and remote generation in the README.
 
 ## 0.2.2 — 2026-10-03
 
