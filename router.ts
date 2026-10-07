@@ -118,28 +118,39 @@ export function mergeConfig(globalCfg: NimbleConfig, projectCfg?: NimbleConfig):
 }
 
 /**
- * Parse the router's answer into a target, or undefined when it gave no clear verdict.
+ * Parse the router's answer into a target, or undefined when it gave no clean verdict.
  *
- * Security: only the router's own FINAL non-empty line is inspected, and within it the
- * last routing token ("local"/"cloud") wins. A thinking model narrates on earlier
- * lines and lands its verdict last, so final-line parsing keeps that behavior; but an
- * injected "cloud" on an earlier (data) line can no longer steer the route, and
- * trailing noise after a keyword (e.g. "cloud\nroutine paste") leaves no clean verdict,
- * so it fails closed to the configured default instead of force-routing to cloud.
+ * The parser is total and injection-resilient by construction:
+ *  - Only the FINAL non-empty line is read. A thinking model narrates on earlier lines
+ *    and lands its verdict last, so an injected "cloud"/"heavy" on an earlier (data)
+ *    line can never steer the route - earlier lines are simply not consulted.
+ *  - Within that line the last whole-word, case-insensitive routing token wins; any
+ *    surrounding punctuation or quotes are ignored.
+ *  - Anything that is not a clean final-line verdict - empty input, blank-only lines,
+ *    or trailing noise on a later line - returns undefined, so the caller (decide) fails
+ *    closed to the configured default instead of force-routing.
  */
 export function parseDecision(text: string): Target | undefined {
+	// Read ONLY the final non-empty line; every earlier line is ignored outright, which
+	// is what bounds prompt injection from the router's own reasoning.
 	const lines = text.split(/\r?\n/);
+	let line = "";
 	for (let i = lines.length - 1; i >= 0; i--) {
-		const line = lines[i].trim().toLowerCase();
-		if (!line) continue; // skip blank trailing lines; parse the last content line
-		let choice: Target | undefined;
-		// whole-word, last token wins; surrounding punctuation/quotes still match.
-		for (const m of line.matchAll(/\b(heavy|cloud|local)\b/g)) {
-			choice = m[1] === "heavy" ? "heavy" : m[1] === "cloud" ? "cloud" : "local";
+		const trimmed = lines[i].trim();
+		if (trimmed) {
+			line = trimmed;
+			break;
 		}
-		return choice; // undefined = no clean verdict on this line
 	}
-	return undefined;
+	if (!line) return undefined; // empty / blank-only input -> no clean verdict
+	// Last whole-word, case-insensitive routing token on that line wins; surrounding
+	// punctuation or quotes still match; no token at all -> undefined.
+	const lowered = line.toLowerCase();
+	let choice: Target | undefined;
+	for (const m of lowered.matchAll(/\b(heavy|cloud|local)\b/g)) {
+		choice = m[1] === "heavy" ? "heavy" : m[1] === "cloud" ? "cloud" : "local";
+	}
+	return choice;
 }
 
 /**
