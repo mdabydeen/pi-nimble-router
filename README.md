@@ -71,7 +71,10 @@ non-exfil fields), then `/reload`.
         "heavy": "anthropic/claude-opus-5-5",
         "default": "local",
         "timeoutMs": 15000,
-        "cloudWhen": "architecture, hard debugging, cross-cutting design, research"
+        "cloudWhen": "architecture, hard debugging, cross-cutting design, research",
+        "compaction": false,
+        "compactionWhen": "only when the old turns are clearly not load-bearing",
+        "keepRecentTurns": 3
     }
 }
 ```
@@ -85,6 +88,9 @@ non-exfil fields), then `/reload`.
 | `default` | where to send a turn when there is no decision | `local` |
 | `timeoutMs` | router decision budget | `15000` |
 | `cloudWhen` | natural-language hint for when to prefer cloud | none |
+| `compaction` | let the router decide what to fold at compaction (`true` on) | `false` |
+| `compactionWhen` | natural-language hint for a smart fold | none |
+| `keepRecentTurns` | hard floor of turns always kept verbatim | `3` |
 | `routerMaxTokens` | max output tokens for the router call | `32` |
 | `routerOptions` | sampling params for the router call | `{ reasoning_effort: "none", temperature: 0 }` |
 
@@ -143,6 +149,9 @@ with `NIMBLE_DEBUG=1 pi ...` (it logs the router ref, response length, and parse
 | `index.ts` | Pi extension; registers `nimble/auto`, reads config, dispatches. |
 | `router.ts` | Pure routing logic (no Pi imports) — the decision contract, fully testable. |
 | `selfcheck.ts` | `node selfcheck.ts` — runnable assertions for the pure logic. |
+| `docs/CONSTITUTION.md` | the invariants (fail-closed, exfil scoping, sticky-in-turn) every change is judged against. |
+| `docs/FEATURES.md` | feature → `selfcheck` assertion traceability, the spec of record. |
+| `docs/GAPS.md` | deliberate deferrals and their revisit triggers. |
 
 ## Development
 

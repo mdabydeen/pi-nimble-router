@@ -4,6 +4,9 @@
 
 - Add a dependency-free GitHub Actions verification job for the self-check, redacted debug output, package shape, and patch whitespace.
 - Explain the local-first trade-off and the boundary between local routing and remote generation in the README.
+- Add `docs/CONSTITUTION.md` (the invariants), `docs/FEATURES.md` (feature→assertion traceability), and `docs/GAPS.md` (deliberate deferrals), a lightweight, Pi-native substitute for a spec/issue workflow.
+- Lock the `EXFIL_KEYS` set in `selfcheck.ts` and prove that a router which ignores `timeoutMs` fails soft to the fallback, so a typo in the exfil list cannot silently re-open a route to the cloud.
+- Add smart compaction: an opt-in `nimbleRouter.compaction` mode where the local router decides how many recent turns a Pi compaction must keep (`compaction.ts`), with the most-recent-N floor and a fail-closed fallback to Pi's default compaction. Off by default; routed off the exfil-protected `router` target. Unit-test + offline eval in `selfcheck.ts`; the Pi-bound `session_before_compact` bridge (`index.ts`) is not live-tested here (no tsc / integration harness).
 
 ## 0.2.3 — 2026-10-04
 

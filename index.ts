@@ -40,6 +40,7 @@ import {
 	type ModelRouteRequest,
 } from "@earendil-works/pi-coding-agent";
 import { decide, mergeConfig, resolveConfig, split, type NimbleConfig, type RouterRegistry, type Target } from "./router.ts";
+import { buildKeepPrompt, parseKeep, prunePlan, type CompactionDecision, type TurnDescriptor } from "./compaction.ts";
 
 interface RouterState {
 	target: Target | "sticky" | "direct";
@@ -50,6 +51,46 @@ function splitRef(ref: string, find: (provider: string, id: string) => Model | u
 	if (!s) return undefined;
 	// find can return undefined or a falsy model; treat null as missing.
 	return find(s.provider, s.id) ?? undefined;
+}
+
+/** A one-line, length-bounded preview of a message's non-tool text. */
+function messageHead(m: { role: string; content: unknown }): string {
+	const c = m.content;
+	return typeof c === "string" ? c : c.filter((b: any) => b?.type === "text").map((b: any) => b.text).join(" ") as string;
+}
+
+/** Text length without touching tool payloads, so big outputs stay out of the descriptor. */
+function contentLen(m: { role: string; content: unknown }): number {
+	if (m.role === "tool" || m.role === "tool_result") return 400; // a tool result's cost is opaque; assume a chunk
+	return messageHead(m).length;
+}
+
+/**
+ * Group message entries into turns (one per user message), the newest to be judged by
+ * the router. `firstId` is the entry id that starts the turn, so a plan can move the
+ * cut to a real session boundary.
+ */
+function turnsFromEntries(
+	entries: readonly { id: string; type?: string; message?: { role: string; content: unknown } }[],
+): TurnDescriptor[] {
+	const turns: TurnDescriptor[] = [];
+	let cur: TurnDescriptor | null = null;
+	for (const e of entries) {
+		const msg = e.type === "message" ? e.message : undefined;
+		if (!msg) continue;
+		if (msg.role === "user") {
+			cur = { turn: turns.length, firstId: e.id, chars: 0, tools: [], head: messageHead(msg).slice(0, 240) };
+			turns.push(cur);
+			continue;
+		}
+		if (!cur) continue; // stray non-user message before any user message: not a turn
+		cur.chars += contentLen(msg);
+		if ((msg.role === "tool" || msg.role === "tool_result")) {
+			const name = ((msg as any).name ?? (msg as any).toolName) as string | undefined;
+			if (name && !cur.tools.includes(name)) cur.tools.push(name);
+		}
+	}
+	return turns;
 }
 
 /** Last user message, text only, capped. */
@@ -153,5 +194,74 @@ export default function (pi: ExtensionAPI) {
 			if (!chosen) throw new Error(`nimble-router: routed model ${decision.model.provider}/${decision.model.id} not found`);
 			return { model: chosen, thinkingLevel: req.thinkingLevel, state: { target: decision.target } };
 		},
+	});
+
+	// Smart compaction: the local router decides how many recent turns must survive a
+	// fold instead of Pi's fixed-token walk-back. Gated off by default so routing is
+	// untouched; every uncertain path returns undefined, so Pi runs its own compaction.
+	//
+	// PI-BOUND / NOT unit-tested here: the event + result shapes come from
+	// `@earendil-works/pi-coding-agent` and the turn-grouping only runs under Pi, so this
+	// is checked by type + review, not by `selfcheck` (same as sticky-in-turn).
+	pi.on("session_before_compact", async (event, ctx) => {
+		const raw = readConfig(ctx.cwd);
+		// resolveConfig's fallback model only seeds unconfigured router/local; a real physical
+		// model on the session is preferred. If fully unset, find() misses and we fail closed.
+		const phys = ctx.model && !isVirtualModel(ctx.model) ? ctx.model : undefined;
+		const cfg = resolveConfig(raw, { provider: phys?.provider ?? "ollama", model: phys?.id ?? "" });
+		if (!cfg.compaction) return; // off by default -> Pi compacts as usual
+		try {
+			// The router registry over the same view used for routing.
+			const complete = async (ref: string, text: string, opts: { signal?: AbortSignal; maxTokens: number }): Promise<string> => {
+				const m = splitRef(ref, (p, id) => ctx.modelRegistry.find(p, id));
+				if (!m) return "";
+				const out = await ctx.modelRegistry.complete(m, { systemPrompt: "", messages: [{ role: "user", content: text, timestamp: Date.now() }] }, opts);
+				return out.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+			};
+
+			// Turns in the region Pi KEPT (from its default cut to the end): only these can be folded
+			// more. The router decides how many of THEM must stay; code enforces the floor.
+			const entries = event.branchEntries;
+			const cutIdx = entries.findIndex((e) => e.id === event.preparation.firstKeptEntryId);
+			const keptTurns = turnsFromEntries(cutIdx >= 0 ? entries.slice(cutIdx) : entries);
+			if (keptTurns.length <= 1) return; // nothing older to fold
+
+			// One bounded local call answers the keep-count. Fail soft if the router is missing, times
+			// out, or the session is cancelled; an empty reply declines and we fall back to Pi default.
+			if (event.signal.aborted) return;
+			const controller = new AbortController();
+			const onAbort = () => controller.abort();
+			event.signal.addEventListener("abort", onAbort, { once: true });
+			const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
+			const out = await complete(cfg.router, buildKeepPrompt(keptTurns, cfg.compactionWhen), { signal: controller.signal, maxTokens: cfg.routerMaxTokens }).catch(() => "");
+			clearTimeout(timer);
+			event.signal.removeEventListener("abort", onAbort);
+
+			const decision: CompactionDecision = out ? parseKeep(out) : { turns: 0, gate: false, why: "unavailable" };
+			const plan = prunePlan(keptTurns, decision, cfg);
+			if (!plan || plan.folded.length === 0) return; // keep everything / declined -> Pi default
+
+			// The older kept turns now fold into the summary. Their entry range runs from Pi's cut to
+			// the first still-kept turn; plus Pi's own to-summarize region. The newest survive verbatim;
+			// nimble decided the cut, the configured local tier writes the summary (shortcut: a small
+			// router is a weak summarizer; upgrade if `local` is strong enough to own the fold itself).
+			const endIdx = entries.findIndex((e) => e.id === plan.firstKeptId);
+			const foldEntries = endIdx > 0 ? entries.slice(cutIdx, endIdx) : entries.slice(cutIdx);
+			const material = [event.preparation.previousSummary, ...event.preparation.messagesToSummarize.map((m: any) => messageHead(m)), ...foldEntries.map((e: any) => e.message ? messageHead(e.message) : "")].filter((s: any) => s).join("\n");
+			if (!material) return; // nothing to summarize -> leave it to Pi
+			const summary = await complete(cfg.local, `Compress the conversation history below into a tight summary that keeps the facts, decisions, and open tasks so the next turn can continue without the original:\n${material}`, { signal: event.signal, maxTokens: 4096 }).catch(() => "");
+			if (!summary) return; // no summary -> leave it to Pi (fail closed, invariant #2)
+
+			return {
+				compaction: {
+					summary,
+					firstKeptEntryId: plan.firstKeptId,
+					tokensBefore: event.preparation.tokensBefore,
+					details: { pruned: plan.folded, keptTurns: plan.keptCount, why: "nimble" },
+				},
+			};
+		} catch {
+			return; // any failure -> Pi's default compaction (fail closed, invariant #2)
+		}
 	});
 }

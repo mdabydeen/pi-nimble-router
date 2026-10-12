@@ -49,6 +49,19 @@ export interface NimbleConfig {
 	 * ignored where unsupported. Set `{}` to let a model think, or add model-specific keys.
 	 */
 	routerOptions?: Record<string, unknown>;
+	/**
+	 * Enable smart compaction: when Pi compacts a session, the local router decides
+	 * how many recent turns must stay instead of the fixed token walk-back. The
+	 * router only decides the cut; a local model writes the fold summary. When false
+	 * (default) the extension returns nothing and Pi compacts as usual. Non-exfil:
+	 * the router call that sees turn previews is `router` (an EXFIL_KEY), so this
+	 * adds no new cloud target.
+	 */
+	compaction?: boolean;
+	/** Natural-language hint for when folding earlier turns is safe. */
+	compactionWhen?: string;
+	/** Hard floor: at least this many most-recent turns survive every fold. Default 3. */
+	keepRecentTurns?: number;
 }
 
 export interface ResolvedConfig {
@@ -61,6 +74,9 @@ export interface ResolvedConfig {
 	cloudWhen?: string;
 	routerMaxTokens: number;
 	routerOptions: Record<string, unknown> | undefined;
+	compaction: boolean;
+	compactionWhen?: string;
+	keepRecentTurns: number;
 }
 
 export interface Decision {
@@ -90,6 +106,10 @@ export function resolveConfig(config: NimbleConfig, defaults: { provider: string
 		routerMaxTokens: config.routerMaxTokens && config.routerMaxTokens > 0 ? config.routerMaxTokens : 32,
 		// Defaults: suppress thinking (verdict lands in `content`) + temperature 0 for a deterministic pick.
 		routerOptions: config.routerOptions ?? { reasoning_effort: "none", temperature: 0 },
+		compaction: config.compaction === true,
+		compactionWhen: config.compactionWhen,
+		// A floor of 1 protects the last turn; a non-positive value falls back to 3.
+		keepRecentTurns: config.keepRecentTurns && config.keepRecentTurns > 0 ? config.keepRecentTurns : 3,
 	};
 }
 
