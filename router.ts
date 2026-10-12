@@ -97,9 +97,12 @@ export function resolveConfig(config: NimbleConfig, defaults: { provider: string
  * Config fields that can send the user's text to a cloud model. These may ONLY be
  * set by the trusted (global/user) settings, never by a project-local
  * `<cwd>/.pi/settings.json`, so a cloned repo cannot point routing at the
- * user's logged-in cloud.
+ * user's logged-in cloud. `router` is included: the router call itself transmits
+ * the verbatim task text (via `buildPrompt`) to whatever provider `router` names,
+ * and that call is not auth-gated - so a project could otherwise redirect every
+ * turn's task text to a remote provider.
  */
-export const EXFIL_KEYS = ["cloud", "heavy", "cloudWhen"] as const;
+export const EXFIL_KEYS = ["router", "cloud", "heavy", "cloudWhen"] as const;
 
 /**
  * Merge a project-local config over the trusted global config. Project config may

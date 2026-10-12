@@ -298,6 +298,14 @@ assert.deepEqual(mergeConfig({}, undefined), {}, "no project config -> global un
 }
 assert.equal(mergeConfig({ local: "a" }, { local: "b" }).local, "b", "non-exfil override works");
 
+// a project cannot redirect the router to a remote provider: the router call transmits
+// the verbatim task text (unauth-gated), so `router` is exfil-protected like cloud/heavy
+{
+	const r = mergeConfig({ router: "ollama/local" }, { router: "openai/gpt-5", cloud: "ollama/evil" });
+	assert.equal(r.router, "ollama/local", "project cannot override the router target");
+	assert.equal(r.cloud, undefined, "project cannot set cloud either");
+}
+
 // decide: three-tier ladder. heavy verdict routes to the strong model when it's logged in
 {
 	const cfg = resolveConfig(
