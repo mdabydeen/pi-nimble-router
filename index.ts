@@ -33,13 +33,19 @@ import type { Message } from "@earendil-works/pi-ai";
 import {
 	CONFIG_DIR_NAME,
 	getAgentDir,
+	loadSkills,
 	isVirtualModel,
+	stripFrontmatter,
 	type ExtensionAPI,
+	type ExtensionContext,
 	type Model,
 	type ModelRoute,
 	type ModelRouteRequest,
+	type Skill,
 } from "@earendil-works/pi-coding-agent";
 import { decide, mergeConfig, resolveConfig, split, type NimbleConfig, type RouterRegistry, type Target } from "./router.ts";
+import { buildKeepPrompt, parseKeep, prunePlan, type CompactionDecision, type TurnDescriptor } from "./compaction.ts";
+import { buildSkillPrompt, parseSkillVerdict } from "./skills.ts";
 
 interface RouterState {
 	target: Target | "sticky" | "direct";
@@ -52,7 +58,80 @@ function splitRef(ref: string, find: (provider: string, id: string) => Model | u
 	return find(s.provider, s.id) ?? undefined;
 }
 
-/** Last user message, text only, capped. */
+/** A one-line, length-bounded preview of a message's non-tool text. */
+function messageHead(m: { role: string; content: unknown }): string {
+	const c = m.content;
+	return typeof c === "string" ? c : c.filter((b: any) => b?.type === "text").map((b: any) => b.text).join(" ") as string;
+}
+
+/** Text length without touching tool payloads, so big outputs stay out of the descriptor. */
+function contentLen(m: { role: string; content: unknown }): number {
+	if (m.role === "tool" || m.role === "tool_result") return 400; // a tool result's cost is opaque; assume a chunk
+	return messageHead(m).length;
+}
+
+/**
+ * Group message entries into turns (one per user message), the newest to be judged by
+ * the router. `firstId` is the entry id that starts the turn, so a plan can move the
+ * cut to a real session boundary.
+ */
+function turnsFromEntries(
+	entries: readonly { id: string; type?: string; message?: { role: string; content: unknown } }[],
+): TurnDescriptor[] {
+	const turns: TurnDescriptor[] = [];
+	let cur: TurnDescriptor | null = null;
+	for (const e of entries) {
+		const msg = e.type === "message" ? e.message : undefined;
+		if (!msg) continue;
+		if (msg.role === "user") {
+			cur = { turn: turns.length, firstId: e.id, chars: 0, tools: [], head: messageHead(msg).slice(0, 240) };
+			turns.push(cur);
+			continue;
+		}
+		if (!cur) continue; // stray non-user message before any user message: not a turn
+		cur.chars += contentLen(msg);
+		if ((msg.role === "tool" || msg.role === "tool_result")) {
+			const name = ((msg as any).name ?? (msg as any).toolName) as string | undefined;
+			if (name && !cur.tools.includes(name)) cur.tools.push(name);
+		}
+	}
+	return turns;
+}
+
+/**
+ * Resolve a `provider/id` ref and complete it through the registry, text only. Returns ""
+ * when the ref is unknown, mirroring the router's fail-soft contract. `opts.samplingParams` is
+ * forwarded so a thin router's thinking is suppressed (the same fix the routing path relies on).
+ */
+async function routeComplete(
+	ctx: ExtensionContext,
+	ref: string,
+	text: string,
+	opts: { signal?: AbortSignal; maxTokens: number; samplingParams?: Record<string, unknown> },
+): Promise<string> {
+	const m = splitRef(ref, (p, id) => ctx.modelRegistry.find(p, id));
+	if (!m) return "";
+	const out = await ctx.modelRegistry.complete(
+		m,
+		{ systemPrompt: "", messages: [{ role: "user", content: text, timestamp: Date.now() }] },
+		opts,
+	);
+	return out.content.filter((b: any) => b.type === "text").map((b: any) => (b as { text: string }).text).join("");
+}
+
+/** The installed, model-invocable skills (their catalog entry, keeping `filePath` so the
+ * chooser can load the SKILL.md it selects). A name + description is enough to route on it. */
+function skillCatalog(cwd: string): Skill[] {
+	const { skills } = loadSkills({
+		cwd,
+		agentDir: getAgentDir(),
+		skillPaths: [],
+		includeDefaults: true,
+	});
+	// Exclude skills hidden from model selection; a description is what routes the skill.
+	return skills.filter((s) => !s.disableModelInvocation && s.description);
+}
+
 function lastUserText(messages: readonly Message[], cap = 12_000): string {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i];
@@ -153,5 +232,127 @@ export default function (pi: ExtensionAPI) {
 			if (!chosen) throw new Error(`nimble-router: routed model ${decision.model.provider}/${decision.model.id} not found`);
 			return { model: chosen, thinkingLevel: req.thinkingLevel, state: { target: decision.target } };
 		},
+	});
+
+	// Smart compaction: the local router decides how many recent turns must survive a
+	// fold instead of Pi's fixed-token walk-back. Gated off by default so routing is
+	// untouched; every uncertain path returns undefined, so Pi runs its own compaction.
+	//
+	// PI-BOUND / NOT unit-tested here: the event + result shapes come from
+	// `@earendil-works/pi-coding-agent` and the turn-grouping only runs under Pi, so this
+	// is checked by type + review, not by `selfcheck` (same as sticky-in-turn).
+	pi.on("session_before_compact", async (event, ctx) => {
+		const raw = readConfig(ctx.cwd);
+		// resolveConfig's fallback model only seeds unconfigured router/local; a real physical
+		// model on the session is preferred. If fully unset, find() misses and we fail closed.
+		const phys = ctx.model && !isVirtualModel(ctx.model) ? ctx.model : undefined;
+		const cfg = resolveConfig(raw, { provider: phys?.provider ?? "ollama", model: phys?.id ?? "" });
+		if (!cfg.compaction) return; // off by default -> Pi compacts as usual
+		try {
+			// Turns in the region Pi KEPT (from its default cut to the end): only these can be folded
+			// more. The router decides how many of THEM must stay; code enforces the floor.
+			const entries = event.branchEntries;
+			const cutIdx = entries.findIndex((e) => e.id === event.preparation.firstKeptEntryId);
+			const keptTurns = turnsFromEntries(cutIdx >= 0 ? entries.slice(cutIdx) : entries);
+			if (keptTurns.length <= 1) return; // nothing older to fold
+
+			// One bounded local call answers the keep-count. Fail soft if the router is missing, times
+			// out, or the session is cancelled; an empty reply declines and we fall back to Pi default.
+			if (event.signal.aborted) return;
+			const controller = new AbortController();
+			const onAbort = () => controller.abort();
+			event.signal.addEventListener("abort", onAbort, { once: true });
+			const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
+			const out = await routeComplete(ctx, cfg.router, buildKeepPrompt(keptTurns, cfg.compactionWhen), { signal: controller.signal, maxTokens: cfg.routerMaxTokens, samplingParams: cfg.routerOptions }).catch(() => "");
+			clearTimeout(timer);
+			event.signal.removeEventListener("abort", onAbort);
+
+			const decision: CompactionDecision = out ? parseKeep(out) : { turns: 0, gate: false, why: "unavailable" };
+			const plan = prunePlan(keptTurns, decision, cfg);
+			if (!plan || plan.folded.length === 0) return; // keep everything / declined -> Pi default
+
+			// The older kept turns now fold into the summary. Their entry range runs from Pi's cut to
+			// the first still-kept turn; plus Pi's own to-summarize region. The newest survive verbatim;
+			// nimble decided the cut, the configured local tier writes the summary (shortcut: a small
+			// router is a weak summarizer; upgrade if `local` is strong enough to own the fold itself).
+			const endIdx = entries.findIndex((e) => e.id === plan.firstKeptId);
+			const foldEntries = endIdx > 0 ? entries.slice(cutIdx, endIdx) : entries.slice(cutIdx);
+			const material = [event.preparation.previousSummary, ...event.preparation.messagesToSummarize.map((m: any) => messageHead(m)), ...foldEntries.map((e: any) => e.message ? messageHead(e.message) : "")].filter((s: any) => s).join("\n");
+			if (!material) return; // nothing to summarize -> leave it to Pi
+			const summary = await routeComplete(ctx, cfg.local, `Compress the conversation history below into a tight summary that keeps the facts, decisions, and open tasks so the next turn can continue without the original:\n${material}`, { signal: event.signal, maxTokens: 4096 }).catch(() => "");
+			if (!summary) return; // no summary -> leave it to Pi (fail closed, invariant #2)
+
+			return {
+				compaction: {
+					summary,
+					firstKeptEntryId: plan.firstKeptId,
+					tokensBefore: event.preparation.tokensBefore,
+					details: { pruned: plan.folded, keptTurns: plan.keptCount, why: "nimble" },
+				},
+			};
+		} catch {
+			return; // any failure -> Pi's default compaction (fail closed, invariant #2)
+		}
+	});
+
+	// Smart skill selection: the local router picks the one installed SKILL.md that fits the turn
+	// and we load its instructions into that turn, instead of the main model deciding (a model
+	// "might fail to load a relevant skill"). Off by default, so routing is untouched; every
+	// uncertain path (missing router, timeout, cancel, no known skill, unreadable file) leaves the
+	// input as-is, so loading is opt-in and fail-closed.
+	//
+	// PI-BOUND / NOT unit-tested here: the `input` event + result shapes come from Pi; the pure
+	// selection logic (buildSkillPrompt / parseSkillVerdict) is unit-tested in selfcheck.
+	pi.on("input", async (event, ctx) => {
+		if (event.source === "extension") return; // don't re-run selection on text we injected
+		const raw = readConfig(ctx.cwd);
+		const phys = ctx.model && !isVirtualModel(ctx.model) ? ctx.model : undefined;
+		const cfg = resolveConfig(raw, { provider: phys?.provider ?? "ollama", model: phys?.id ?? "" });
+		if (!cfg.skills) return; // off by default -> the input flows as usual
+		// A skill we already injected this turn: don't feed that instruction back into the router.
+		if (/^\s*<!--\s*nimble-skill:/i.test(event.text)) return;
+
+		// Nothing to select, or the catalog can't be read: leave the input as-is (fail closed).
+		let catalog: Skill[];
+		try {
+			catalog = skillCatalog(ctx.cwd);
+		} catch {
+			return;
+		}
+		if (!catalog.length) return;
+
+		// One bounded router call, reusing the routing timeout + cancel machinery. Fail soft on a
+		// missing router, a timeout, or a cancelled turn; an empty reply declines.
+		const signal = ctx.signal;
+		if (signal?.aborted) return;
+		const controller = new AbortController();
+		const onAbort = () => controller.abort();
+		signal?.addEventListener("abort", onAbort, { once: true });
+		const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
+		const out = await routeComplete(
+			ctx,
+			cfg.router,
+			buildSkillPrompt(event.text.slice(0, 12_000), catalog, cfg.skillWhen),
+			{ signal: controller.signal, maxTokens: cfg.routerMaxTokens, samplingParams: cfg.routerOptions },
+		).catch(() => "");
+		clearTimeout(timer);
+		signal?.removeEventListener("abort", onAbort);
+
+		const decision = out ? parseSkillVerdict(out, catalog) : { skill: undefined, why: "unavailable" as const };
+		if (!decision.skill) return; // none / declined / unparseable -> leave the input (fail closed)
+
+		// Load the chosen SKILL.md and prepend its body. A read failure declines (fail closed).
+		const chosen = catalog.find((s) => s.name === decision.skill);
+		if (!chosen) return;
+		let body: string;
+		try {
+			body = stripFrontmatter(readFileSync(chosen.filePath, "utf8"));
+		} catch {
+			return;
+		}
+		if (!body.trim()) return; // empty skill body -> nothing to load
+
+		const text = `<!-- nimble-skill: ${chosen.name} -->\n${body.trim()}\n\n${event.text}`;
+		return { action: "transform" as const, text, images: event.images };
 	});
 }

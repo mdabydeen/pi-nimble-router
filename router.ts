@@ -49,6 +49,29 @@ export interface NimbleConfig {
 	 * ignored where unsupported. Set `{}` to let a model think, or add model-specific keys.
 	 */
 	routerOptions?: Record<string, unknown>;
+	/**
+	 * Enable smart compaction: when Pi compacts a session, the local router decides
+	 * how many recent turns must stay instead of the fixed token walk-back. The
+	 * router only decides the cut; a local model writes the fold summary. When false
+	 * (default) the extension returns nothing and Pi compacts as usual. Non-exfil:
+	 * the router call that sees turn previews is `router` (an EXFIL_KEY), so this
+	 * adds no new cloud target.
+	 */
+	compaction?: boolean;
+	/** Natural-language hint for when folding earlier turns is safe. */
+	compactionWhen?: string;
+	/** Hard floor: at least this many most-recent turns survive every fold. Default 3. */
+	keepRecentTurns?: number;
+	/**
+	 * Enable smart skill selection: on each user turn the local router picks the one installed
+	 * `SKILL.md` that fits and it is loaded into the turn, instead of the main model deciding
+	 * (a model "might fail to load a relevant skill"). Off by default. Non-exfil: a loaded skill
+	 * is a local file, and this adds no remote target; the router call that sees the task text is
+	 * already exfil-protected via the `router` key. So `EXFIL_KEYS` is unchanged.
+	 */
+	skills?: boolean;
+	/** Natural-language hint for when to prefer loading a skill. */
+	skillWhen?: string;
 }
 
 export interface ResolvedConfig {
@@ -61,6 +84,11 @@ export interface ResolvedConfig {
 	cloudWhen?: string;
 	routerMaxTokens: number;
 	routerOptions: Record<string, unknown> | undefined;
+	compaction: boolean;
+	compactionWhen?: string;
+	keepRecentTurns: number;
+	skills: boolean;
+	skillWhen?: string;
 }
 
 export interface Decision {
@@ -90,6 +118,13 @@ export function resolveConfig(config: NimbleConfig, defaults: { provider: string
 		routerMaxTokens: config.routerMaxTokens && config.routerMaxTokens > 0 ? config.routerMaxTokens : 32,
 		// Defaults: suppress thinking (verdict lands in `content`) + temperature 0 for a deterministic pick.
 		routerOptions: config.routerOptions ?? { reasoning_effort: "none", temperature: 0 },
+		compaction: config.compaction === true,
+		compactionWhen: config.compactionWhen,
+		// A floor of 1 protects the last turn; a non-positive value falls back to 3.
+		keepRecentTurns: config.keepRecentTurns && config.keepRecentTurns > 0 ? config.keepRecentTurns : 3,
+		// Skill selection is opt-in and, like a boolean flag, only true on exact boolean true.
+		skills: config.skills === true,
+		skillWhen: config.skillWhen,
 	};
 }
 
