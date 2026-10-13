@@ -46,13 +46,33 @@ oversight. Revisit when the trigger condition in parentheses arrives.
   `CompactionResult.firstKeptEntryId` being a contiguous cut. *(Trigger: a per-element
   `CompactionResult`/`prune` API from Pi, like a Jev `prune()` call.)*
 
+### Smart skills selection (the `input` bridge)
+
+- **No integration test for the smart-skills bridge.** `skills.ts` (the decision logic:
+  `buildSkillPrompt`/`parseSkillVerdict`/`SkillDecision`) *is* unit-tested in `selfcheck` — incl.
+  a catalog-bounded parser and exfil scoping — but the `input` handler in `index.ts` is Pi-bound and
+  unrunnable here (no tsc / integration harness): same status as the compaction bridge and sticky-
+  within-a-turn. *(Trigger: a skill-selection bug in the live path.)*
+- **Loads the SKILL.md body into the turn, not `/skill:name`.** The chooser injects the stripped
+  `SKILL.md` as a `<!-- nimble-skill: name -->` preamble to the user input (a re-entry guard skips
+  that marker); it does not dispatch Pi's `/skill:name` command, whose expansion the `input`
+  transform does not re-run. *(Trigger: a skill that needs command dispatch rather than inlined text.)*
+- **Selection is a second judgment, not folded into the tier verdict.** A `skills` turn makes one
+  router call that answers only *which skill*, separate from the tier verdict `decide()` returns to
+  `route()`; the two are independent opt-ins. A combined one-call tier+skill verdict is deferred.
+  *(Trigger: a measurement shows two router calls per turn is the cost bottleneck.)*
+- **`loadSkills` uses default + cwd discovery.** The catalog is `loadSkills({cwd, agentDir,
+  includeDefaults: true})`; a `skills` setting that overrides skill *directories* is not consulted,
+  only default + project/user discovery. *(Trigger: a user routes off a non-default skill directory.)*
+
 ## Documentation staleness to close when it recurs
 
 - The README and `evaluation-checklist.md` pin `v0.2.2` as the reviewed install
   ref while `package.json` is `0.2.3` (a doc-only release). Re-pin to the next
   reviewed release when one ships. This is a *reviewed-release pin*, not code drift.
-- No per-feature `docs/features/<name>.md` spec. Add one only for a non-trivial
-  change (a new tier, a new exfil field), not per edit.
+- Feature docs: no per-feature `docs/features/<name>.md` spec. `docs/smart-compaction.md` and
+  `docs/smart-skills.md` record the two non-trivial bridges' contracts; add one the same way for the
+  next non-trivial change (a new tier, a new exfil field, another bridge), not per edit.
 
 ## Enforced, not optional
 

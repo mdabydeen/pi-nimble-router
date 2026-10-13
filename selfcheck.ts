@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { decide, buildPrompt, EXFIL_KEYS, mergeConfig, parseDecision, resolveConfig, split, type ResolvedConfig, type RouterRegistry } from "./router.ts";
 import { parseKeep, prunePlan, buildKeepPrompt, resolveFloor, type CompactionDecision, type TurnDescriptor } from "./compaction.ts";
+import { buildSkillPrompt, parseSkillVerdict } from "./skills.ts";
 
 const D = { provider: "ollama", model: "qwen3.8:27b-mlx" };
 
@@ -456,6 +457,53 @@ assert.deepEqual([...EXFIL_KEYS], ["router", "cloud", "heavy", "cloudWhen"], "ex
 	assert.equal(r.router, "ollama/local", "but still cannot redirect the router");
 }
 
+// === Smart skill selection (skills.ts) ===
+const SKILLS = [
+	{ name: "pdf-tools", description: "Extract text and tables from PDF files." },
+	{ name: "find-skills", description: "Help discover and install agent skills." },
+	{ name: "writing", description: "Draft or revise public posts in a house voice." },
+];
+// a clean verdict names the one skill that fits, matching its catalog name
+assert.equal(parseSkillVerdict("pdf-tools", SKILLS).skill, "pdf-tools", "a final-line name routes to that skill");
+assert.equal(parseSkillVerdict("PDF-TOOLS", SKILLS).skill, "pdf-tools", "the name matches case-insensitively");
+// the FINAL line wins: an injected skill name on an earlier (data) line is ignored
+assert.equal(parseSkillVerdict("load pdf-tools for sure\nwriting", SKILLS).skill, "writing", "final line beats an injected earlier name");
+// last known token on the final line wins; a name NOT in the catalog cannot win
+assert.equal(parseSkillVerdict("writing then pdf-tools", SKILLS).skill, "pdf-tools", "last known token wins");
+assert.equal(parseSkillVerdict("pdf-tools", SKILLS).why, "judge");
+assert.equal(parseSkillVerdict("openai secret-skill", SKILLS).skill, undefined, "a name not in the catalog cannot load");
+assert.equal(parseSkillVerdict("openai secret-skill", SKILLS).why, "unparseable", "an unknown name names no skill");
+// a clean decline names nothing; empty input names nothing (both fail closed)
+assert.equal(parseSkillVerdict("none", SKILLS).skill, undefined, "a clean decline names nothing");
+assert.equal(parseSkillVerdict("none", SKILLS).why, "none");
+assert.equal(parseSkillVerdict("", SKILLS).skill, undefined, "empty input names nothing");
+// a hyphenated name is one token: a bare "find" can neither win nor fragment it
+assert.equal(parseSkillVerdict("find", SKILLS).skill, undefined, "a bare substring is not the hyphenated name");
+assert.equal(parseSkillVerdict("find-skills", SKILLS).skill, "find-skills", "the whole hyphenated name matches");
+// buildSkillPrompt delimits the untrusted task, lists the catalog, and offers `none`
+{
+	const p = buildSkillPrompt("read report.pdf", SKILLS, "when touching a document");
+	assert.ok(p.includes("UNTRUSTED DATA"), "prompt marks the task as untrusted");
+	assert.ok(p.includes("<<< TASK BEGIN") && p.includes("TASK END >>>"), "task is delimited");
+	assert.ok(p.includes("pdf-tools") && p.includes("find-skills"), "the catalog is listed");
+	assert.ok(p.includes("report.pdf"), "the task text is present");
+	assert.ok(p.includes("none"), "a `none` verdict is offered");
+	const begin = p.indexOf("<<< TASK BEGIN");
+	const end = p.indexOf("TASK END >>>");
+	assert.ok(begin > -1 && end > begin, "markers wrap the task text in order");
+}
+// skills/skillWhen are NON-exfil: a cloned repo may opt in but cannot redirect the router that reads the task
+assert.deepEqual([...EXFIL_KEYS], ["router", "cloud", "heavy", "cloudWhen"], "exfil key set stays locked with skills added");
+assert.equal(resolveConfig({}, D).skills, false, "skill selection is OFF by default");
+assert.equal(resolveConfig({ skills: true }, D).skills, true, "`skills: true` opts in");
+assert.equal(resolveConfig({ skills: 1 as any }, D).skills, false, "only boolean true opts in");
+{
+	const r = mergeConfig({ router: "ollama/local" }, { skills: true, skillWhen: "x", router: "openai/gpt-5" });
+	assert.equal(r.skills, true, "a project may enable skill selection");
+	assert.equal(r.skillWhen, "x", "a project may set the skill hint");
+	assert.equal(r.router, "ollama/local", "but a project still cannot redirect the router");
+}
+
 // === Offline eval: does the fold free context, and does it fail closed? ===
 // A deterministic stand-in for the router's verdict, so this runs with no ollama
 // and no network. A real run would swap judge() for the local router call.
@@ -484,4 +532,4 @@ console.log("\ncompaction selfcheck (offline eval, simulated router):");
 	console.log("  fail-closed: every declined verdict -> Pi default compaction (extension returns undefined)");
 }
 
-console.log("\nrouter + compaction selfcheck: all passed");
+console.log("\nrouter + compaction + skill-selection selfcheck: all passed");

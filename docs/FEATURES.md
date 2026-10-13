@@ -69,7 +69,23 @@ path returns nothing so Pi runs its own compaction. Off by default, so routing i
 | Compaction fields are **not** exfil; `EXFIL_KEYS` stays locked | "exfil key set still locked" |
 | Offline eval: a simulated verdict frees ~38–51% of context and declines stay safe | "compaction selfcheck (offline eval)" prints in `selfcheck` |
 
-## Security / config scoping
+## Smart skills selection
+
+The `nimbleRouter.skills` opt-in lets the local router pick the one installed `SKILL.md` that fits
+the turn and load it, instead of the main model deciding. Off by default, so routing is untouched; a
+clean decline, a name not in the catalog, a timeout, a cancel, or an unreadable file all leave the
+input as-is. The loaded skill is a local file, so this adds no exfil field.
+
+| Feature | Assertion in `selfcheck.ts` |
+|---|---|
+| A final-line name routes to that skill; case-insensitive | "a final-line name routes to that skill", "case-insensitively" |
+| Only the router's final line is read; an injected name on a data line is ignored | "final line beats an injected earlier name" |
+| Last known token wins; a name not in the catalog cannot load | "last known token wins", "a name not in the catalog cannot load" |
+| A clean decline or empty reply names nothing (fail closed) | "a clean decline names nothing", "empty input names nothing" |
+| A hyphenated name is one token; a bare substring can't win it | "a bare substring is not the hyphenated name", "the whole hyphenated name matches" |
+| `buildSkillPrompt` delimits the untrusted task and offers `none` | "prompt marks the task as untrusted" ... "markers wrap the task text in order" |
+| Selection is off by default; only boolean `true` opts in | "skill selection is OFF by default", "only boolean true opts in" |
+| `skills`/`skillWhen` are **not** exfil; `EXFIL_KEYS` stays locked | "exfil key set stays locked with skills added" |
 
 | Feature | Assertion |
 |---|---|

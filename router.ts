@@ -62,6 +62,16 @@ export interface NimbleConfig {
 	compactionWhen?: string;
 	/** Hard floor: at least this many most-recent turns survive every fold. Default 3. */
 	keepRecentTurns?: number;
+	/**
+	 * Enable smart skill selection: on each user turn the local router picks the one installed
+	 * `SKILL.md` that fits and it is loaded into the turn, instead of the main model deciding
+	 * (a model "might fail to load a relevant skill"). Off by default. Non-exfil: a loaded skill
+	 * is a local file, and this adds no remote target; the router call that sees the task text is
+	 * already exfil-protected via the `router` key. So `EXFIL_KEYS` is unchanged.
+	 */
+	skills?: boolean;
+	/** Natural-language hint for when to prefer loading a skill. */
+	skillWhen?: string;
 }
 
 export interface ResolvedConfig {
@@ -77,6 +87,8 @@ export interface ResolvedConfig {
 	compaction: boolean;
 	compactionWhen?: string;
 	keepRecentTurns: number;
+	skills: boolean;
+	skillWhen?: string;
 }
 
 export interface Decision {
@@ -110,6 +122,9 @@ export function resolveConfig(config: NimbleConfig, defaults: { provider: string
 		compactionWhen: config.compactionWhen,
 		// A floor of 1 protects the last turn; a non-positive value falls back to 3.
 		keepRecentTurns: config.keepRecentTurns && config.keepRecentTurns > 0 ? config.keepRecentTurns : 3,
+		// Skill selection is opt-in and, like a boolean flag, only true on exact boolean true.
+		skills: config.skills === true,
+		skillWhen: config.skillWhen,
 	};
 }
 

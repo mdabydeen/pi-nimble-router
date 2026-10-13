@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0
+
+- Add smart skill selection: an opt-in `nimbleRouter.skills` mode where, on each user turn, the
+  local router picks the one installed `SKILL.md` that fits and it is loaded into the turn instead
+  of the main model deciding (`skills.ts`, a pure module mirroring `compaction.ts`, wired through
+  the `input` event in `index.ts`). Off by default; a clean decline, a name not in the catalog, an
+  unreadable file, a timeout, or a cancel all leave the input as-is. Non-exfil — a loaded skill is
+  a local file, so `EXFIL_KEYS` is unchanged. Unit-test + `selfcheck` coverage for the selection
+  logic; the `input` bridge is Pi-bound and type-checked, not live-tested here (same status as the
+  compaction bridge).
+- Fix: publish the runtime source. `package.json` `files` shipped `index.ts` and `router.ts` but
+  not `compaction.ts` (now `skills.ts` too), so a `npm install pi-nimble-router` left `index.ts`
+  importing a file that was not in the tarball.
+- Fix: the compaction router call now forwards `routerOptions` (thinking suppression + temperature
+  0), so a thin router returns its verdict in `content` instead of silently yielding an empty
+  reply and falling back to Pi's default compaction.
+
 ## Unreleased
 
 - Add a dependency-free GitHub Actions verification job for the self-check, redacted debug output, package shape, and patch whitespace.
