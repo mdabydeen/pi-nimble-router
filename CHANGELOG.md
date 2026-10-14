@@ -17,8 +17,9 @@
   0), so a thin router returns its verdict in `content` instead of silently yielding an empty
   reply and falling back to Pi's default compaction.
 
-## Unreleased
+## 0.4.0 — 2026-10-14
 
+- Fix: resolve pi-coding-agent 1.2.0 export changes. `isVirtualModel` and the `Model` type are no longer re-exported from `@earendil-works/pi-coding-agent`, so `index.ts` would throw `isVirtualModel is not a function` at routing time. `Model` is now sourced from `@earendil-works/pi-ai`, and the virtual-model check is reproduced locally as `api === "pi-virtual"` (pi's own `createVirtualModel` marker), so routing fallback, compaction, and skill selection work against 1.2.0.
 - Add a dependency-free GitHub Actions verification job for the self-check, redacted debug output, package shape, and patch whitespace.
 - Explain the local-first trade-off and the boundary between local routing and remote generation in the README.
 - Add `docs/CONSTITUTION.md` (the invariants), `docs/FEATURES.md` (feature→assertion traceability), and `docs/GAPS.md` (deliberate deferrals), a lightweight, Pi-native substitute for a spec/issue workflow.
