@@ -29,16 +29,14 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Message } from "@earendil-works/pi-ai";
+import type { Message, Model } from "@earendil-works/pi-ai";
 import {
 	CONFIG_DIR_NAME,
 	getAgentDir,
 	loadSkills,
-	isVirtualModel,
 	stripFrontmatter,
 	type ExtensionAPI,
 	type ExtensionContext,
-	type Model,
 	type ModelRoute,
 	type ModelRouteRequest,
 	type Skill,
@@ -49,6 +47,15 @@ import { buildSkillPrompt, parseSkillVerdict } from "./skills.ts";
 
 interface RouterState {
 	target: Target | "sticky" | "direct";
+}
+
+/** Whether `ctx.model` is a virtual catalog entry rather than a physical model.
+ * pi-coding-agent no longer re-exports its isVirtualModel/VIRTUAL_MODEL_API helper (1.2.0); a
+ * virtual model's `api` is the `pi-virtual` marker set by createVirtualModel, so this reproduces
+ * pi's own check. shortcut: the api tag is a private constant; swap back to the re-exported helper
+ * if pi re-publishes it. */
+function isVirtualModel(m: { api?: string } | undefined | null): boolean {
+	return m?.api === "pi-virtual";
 }
 
 function splitRef(ref: string, find: (provider: string, id: string) => Model | undefined | null): Model | undefined {
